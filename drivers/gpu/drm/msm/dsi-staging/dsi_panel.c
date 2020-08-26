@@ -704,6 +704,9 @@ static u32 interpolate(uint32_t x, uint32_t xa, uint32_t xb, uint32_t ya, uint32
 
 u32 dsi_panel_get_fod_dim_alpha(struct dsi_panel *panel)
 {
+	if (panel->hbm_mode)
+		return 0;
+
 	u32 brightness = dsi_panel_get_backlight(panel);
 	int i;
 
@@ -768,12 +771,34 @@ int dsi_panel_set_fod_hbm(struct dsi_panel *panel, bool status)
 
 	if (panel->doze_enabled)
 		rc = dsi_panel_update_doze(panel);
+		
+	if (panel->hbm_mode)
+		return rc;
 
-	rc = dsi_panel_tx_cmd_set(panel, status ? DSI_CMD_SET_DISP_HBM_FOD_ON : DSI_CMD_SET_DISP_HBM_FOD_OFF);
+	if (status) {
+#ifdef CONFIG_EXPOSURE_ADJUSTMENT
+		if (ea_panel_is_enabled()) {
+			ea_panel_mode_ctrl(panel, 0);
+			panel->resend_ea = true;
+		}
+#endif
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_DISP_HBM_FOD_ON);
+		if (rc)
+			pr_err("[%s] failed to send DSI_CMD_SET_DISP_HBM_FOD_ON cmd, rc=%d\n",
+					panel->name, rc);
+	} else {
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_DISP_HBM_FOD_OFF);
+		if (rc)
+			pr_err("[%s] failed to send DSI_CMD_SET_DISP_HBM_FOD_OFF cmd, rc=%d\n",
+					panel->name, rc);
+#ifdef CONFIG_EXPOSURE_ADJUSTMENT
+		if (panel->resend_ea) {
+			ea_panel_mode_ctrl(panel, 1);
+			panel->resend_ea = false;
+		}
+#endif
+	}
 
-	if (rc)
-		pr_err("[%s] failed to send FOD HBM cmd, rc=%d\n",
-				panel->name, rc);
 	return rc;
 }
 
@@ -4664,10 +4689,20 @@ int dsi_panel_apply_hbm_mode(struct dsi_panel *panel)
 	int rc;
 
 	if (panel->hbm_mode >= 0 &&
-		panel->hbm_mode < ARRAY_SIZE(type_map))
+		panel->hbm_mode < ARRAY_SIZE(type_map)) {
+#ifdef CONFIG_EXPOSURE_ADJUSTMENT
+		if (ea_panel_is_enabled() && panel->hbm_mode != 0) {
+			ea_panel_mode_ctrl(panel, 0);
+			panel->resend_ea_hbm = true;
+		} else if (panel->resend_ea_hbm && panel->hbm_mode == 0) {
+			ea_panel_mode_ctrl(panel, 1);
+			panel->resend_ea_hbm = false;
+		}
+#endif
 		type = type_map[panel->hbm_mode];
-	else
-		type = DSI_CMD_SET_DISP_HBM_FOD_OFF;
+	} else {
+		type = type_map[0];
+	}
 
 	mutex_lock(&panel->panel_lock);
 	rc = dsi_panel_tx_cmd_set(panel, type);
