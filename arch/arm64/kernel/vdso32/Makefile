@@ -71,7 +71,7 @@ VDSO_CFLAGS += -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 ifeq ($(cc-name),clang)
 VDSO_CFLAGS  += -Ofast
 else
-VDSO_CFLAGS  += -O2
+VDSO_CFLAGS  += -O3
 endif
 # Some useful compiler-dependent flags from top-level Makefile
 VDSO_CFLAGS += $(call cc32-option,-Wdeclaration-after-statement,)
